@@ -44,16 +44,42 @@ entity ClockGen is
 end ClockGen;
 
 architecture Behavioral of ClockGen is
-signal PixelClkInX1, PixelClkInX5, FeedbackClk : std_logic;
-signal aLocked_int, pLocked, pRst, pLockWasLost : std_logic;
+
+component SyncAsync is
+   Generic (
+      kResetTo : std_logic := '0'; --value when reset and upon init
+      kStages : natural := 2); --double sync by default
+   Port (
+      aReset : in STD_LOGIC; -- active-high asynchronous reset
+      aIn : in STD_LOGIC;
+      OutClk : in STD_LOGIC;
+      oOut : out STD_LOGIC);
+end component SyncAsync;
+
+component ResetBridge is
+   Generic (
+      kPolarity : std_logic := '1');
+   Port (
+      aRst : in STD_LOGIC; -- asynchronous reset; active-high, if kPolarity=1
+      OutClk : in STD_LOGIC;
+      oRst : out STD_LOGIC);
+end component ResetBridge;
+
+signal PixelClkInX1, PixelClkInX5, FeedbackClkIn, FeedbackClkOut : std_logic;
+signal aLocked_int, pLocked, pRst, pLockWasLost, pLockGained : std_logic;
 signal pLocked_q : std_logic_vector(2 downto 0) := (others => '1');
+
+attribute CLOCK_BUFFER_TYPE : string;
+attribute CLOCK_BUFFER_TYPE of PixelClkInX5: signal is "NONE";
+attribute CLOCK_BUFFER_TYPE of PixelClkInX1: signal is "NONE";
+
 begin
 
 -- We need a reset bridge to use the asynchronous aRst signal to reset our circuitry
 -- and decrease the chance of metastability. The signal pRst can be used as
 -- asynchronous reset for any flip-flop in the PixelClkIn domain, since it will be de-asserted
 -- synchronously.
-LockLostReset: entity work.ResetBridge
+LockLostReset: ResetBridge
    generic map (
       kPolarity => '1')
    port map (
@@ -61,21 +87,23 @@ LockLostReset: entity work.ResetBridge
       OutClk => PixelClkIn,
       oRst => pRst);
 
-PLL_LockSyncAsync: entity work.SyncAsync
+PLL_LockSyncAsync: SyncAsync
    port map (
       aReset => '0',
       aIn => aLocked_int,
       OutClk => PixelClkIn,
       oOut => pLocked);
       
-PLL_LockLostDetect: process(PixelClkIn)
+PLL_LockLostDetect: process(PixelClkIn, pRst)
 begin
    if (pRst = '1') then
-      pLocked_q <= (others => '1');
+      pLocked_q <= (others => '0');
       pLockWasLost <= '1'; 
+	  pLockGained <= '0';
    elsif Rising_Edge(PixelClkIn) then
       pLocked_q <= pLocked_q(pLocked_q'high-1 downto 0) & pLocked;
       pLockWasLost <= (not pLocked_q(0) or not pLocked_q(1)) and pLocked_q(2); --two-pulse 
+      pLockGained <= (pLocked_q(0) and not pLocked_q(1));
    end if;
 end process;
 
@@ -133,7 +161,7 @@ DVI_ClkGenerator: MMCME2_ADV
    port map
    -- Output clocks
    (
-      CLKFBOUT            => FeedbackClk,
+      CLKFBOUT            => FeedbackClkOut,
       CLKFBOUTB           => open,
       CLKOUT0             => PixelClkInX5,
       CLKOUT0B            => open,
@@ -147,7 +175,7 @@ DVI_ClkGenerator: MMCME2_ADV
       CLKOUT5             => open,
       CLKOUT6             => open,
       -- Input clock control
-      CLKFBIN             => FeedbackClk,
+      CLKFBIN             => FeedbackClkIn,
       CLKIN1              => PixelClkIn,
       CLKIN2              => '0',
       -- Tied to always select the primary input clock
@@ -171,6 +199,40 @@ DVI_ClkGenerator: MMCME2_ADV
       CLKFBSTOPPED        => open,
       PWRDWN              => '0',
       RST                 => pLockWasLost);
+
+-- MMCM is able to drive BUFIO, which is the fastest buffer available
+-- 5x fast serial clock
+SerialClkBuffer: BUFIO
+   port map (
+      O => SerialClk, -- 1-bit output: Clock output (connect to I/O clock loads).
+      I => PixelClkInX5  -- 1-bit input: Clock input (connect to an IBUF or BUFMR).
+   );
+-- 1x slow parallel clock
+PixelClkBuffer: BUFR
+   generic map (
+      BUFR_DIVIDE => "5",   -- Values: "BYPASS, 1, 2, 3, 4, 5, 6, 7, 8" 
+      SIM_DEVICE => "7SERIES"  -- Must be set to "7SERIES" 
+   )
+   port map (
+      O => PixelClkOut,     -- 1-bit output: Clock output port
+      CE => '1',   -- 1-bit input: Active high, clock enable (Divided modes only)
+      CLR => pLockGained, -- 1-bit input: Active high, asynchronous clear (Divided modes only)        
+      I => PixelClkInX5      -- 1-bit input: Clock buffer input driven by an IBUF, MMCM or local interconnect
+   );
+-- Adding a divide-by-one BUFR in the feedback will de-skew SerialClk and PixelClkOut resulting in better timing
+Deskew: BUFR
+   generic map (
+      BUFR_DIVIDE => "1",   -- Values: "BYPASS, 1, 2, 3, 4, 5, 6, 7, 8" 
+      SIM_DEVICE => "7SERIES"  -- Must be set to "7SERIES" 
+   )
+   port map (
+      O => FeedbackClkIn,     -- 1-bit output: Clock output port
+      CE => '1',   -- 1-bit input: Active high, clock enable (Divided modes only)
+      CLR => '0', -- 1-bit input: Active high, asynchronous clear (Divided modes only)        
+      I => FeedbackClkOut      -- 1-bit input: Clock buffer input driven by an IBUF, MMCM or local interconnect
+   );
+   
+   aLocked <= aLocked_int;   
 end generate;
 
 GenPLL: if kClkPrimitive /= "MMCM" generate
@@ -193,7 +255,7 @@ DVI_ClkGenerator: PLLE2_ADV
    port map
    -- Output clocks
    (
-      CLKFBOUT            => FeedbackClk,
+      CLKFBOUT            => FeedbackClkOut,
       CLKOUT0             => PixelClkInX5,
       CLKOUT1             => PixelClkInX1,
       CLKOUT2             => open,
@@ -201,7 +263,7 @@ DVI_ClkGenerator: PLLE2_ADV
       CLKOUT4             => open,
       CLKOUT5             => open,
       -- Input clock control
-      CLKFBIN             => FeedbackClk,
+      CLKFBIN             => FeedbackClkIn,
       CLKIN1              => PixelClkIn,
       CLKIN2              => '0',
       -- Tied to always select the primary input clock
@@ -218,13 +280,17 @@ DVI_ClkGenerator: PLLE2_ADV
       LOCKED              => aLocked_int,
       PWRDWN              => '0',
       RST                 => pLockWasLost);
-      
-end generate;
+ 
 
 --No buffering used
 --These clocks will only drive the OSERDESE2 primitives
 SerialClk <= PixelClkInX5;
 PixelClkOut <= PixelClkInX1;
-aLocked <= aLocked_int;
+FeedbackClkIn <= FeedbackClkOut;
+aLocked <= aLocked_int;    
+
+end generate;
+
+
 
 end Behavioral;

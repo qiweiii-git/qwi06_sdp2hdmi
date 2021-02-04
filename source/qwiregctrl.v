@@ -37,20 +37,11 @@ module qwiregctrl
 // Signals
 //*****************************************************************************
 genvar                 i;
-reg  [DWID*REGCNT-1:0] reg_in_r;
 reg  [DWID-1:0]        reg_ram [0:REGCNT-1];
 
 //*****************************************************************************
 // Processes
 //*****************************************************************************
-always @(*)
-begin
-   if(reg_ce && &reg_we)
-      reg_in_r[DWID*(reg_addr+1)-1 -: DWID] = reg_wrd;
-   else
-      reg_in_r = reg_in;
-end
-
 generate
    for(i=0; i<REGCNT; i=i+1)
    begin:REG_CTRL
@@ -58,8 +49,10 @@ generate
       begin
          if(sys_rst || reg_rst)
             reg_ram[i] <= REG_INIT[i];
+         else if(reg_ce && &reg_we && reg_addr == i)
+            reg_ram[i] <= reg_wrd;
          else
-            reg_ram[i] <= reg_in_r[DWID*(i+1)-1 -: DWID];
+            reg_ram[i] <= reg_in[DWID*(i+1)-1 -: DWID];
       end
 
       assign reg_out[DWID*(i+1)-1 -: DWID] = reg_ram[i];

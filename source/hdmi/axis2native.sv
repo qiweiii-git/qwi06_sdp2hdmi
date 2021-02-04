@@ -98,6 +98,7 @@ generate
       always @(posedge natv_clk)
       begin
          aligned <= 1'b1;
+         wait_sync <= 1'b0;
          if(fifo_tuser)
             vtg_gen <= 1'b1;
          else if(vtg_sof)

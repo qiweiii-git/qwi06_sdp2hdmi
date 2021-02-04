@@ -6,6 +6,7 @@
 // Change History:
 //  VER.   Author         DATE              Change Description
 //  1.0    Qiwei Wu       Apr. 18, 2020     Initial Release
+//  1.1    Qiwei Wu       Feb. 04, 2021     Update
 //*****************************************************************************
 
 module qwi06_sdp2hdmi
@@ -58,12 +59,15 @@ module qwi06_sdp2hdmi
 //*****************************************************************************
 // Signals
 //*****************************************************************************
+reg  [11:0] sys_rst_cnt;
+reg         sys_rst;
 wire        clk_100m;
-wire        clk_150m;
-wire        base_mmcm_locked;
+wire        clk_74p25m;
+wire        clk_74p25m_bufg;
+wire        clk_74p25m_fb;
+wire        clk_371p25m;
+wire        clk_371p25m_bufg;
 wire        vid_mmcm_locked;
-wire        clk_148p5m;
-wire        clk_742p5m;
 
 //*****************************************************************************
 // Ifs
@@ -132,26 +136,64 @@ assign dbg1_vid_vblank = natv_o.vblank;
 assign dbg1_vid_vsync  = natv_o.vsync;
 
 //*****************************************************************************
-// PS
+// CLOCKS
 //*****************************************************************************
-clk_wiz_1 base_mmcm
+MMCME2_BASE
+#(
+   .BANDWIDTH              ( "OPTIMIZED" ),
+   .CLKFBOUT_MULT_F        ( 37.125 ),
+   .CLKFBOUT_PHASE         ( 0.0 ),
+   .CLKIN1_PERIOD          ( 10.000 ),
+   // CLKOUT0_DIVIDE - CLKOUT6_DIVIDE: Divide amount for each CLKOUT (1-128)
+   .CLKOUT0_DIVIDE_F       ( 10.000 ),
+   .CLKOUT1_DIVIDE         ( 2 ),
+   // CLKOUT0_DUTY_CYCLE - CLKOUT6_DUTY_CYCLE: Duty cycle for each CLKOUT (0.01-0.99).
+   .CLKOUT0_DUTY_CYCLE     ( 0.5 ),
+   .CLKOUT1_DUTY_CYCLE     ( 0.5 ),
+   // CLKOUT0_PHASE - CLKOUT6_PHASE: Phase offset for each CLKOUT (-360.000-360.000).
+   .CLKOUT0_PHASE          ( 0.0 ),
+   .CLKOUT1_PHASE          ( 0.0 ),
+   .CLKOUT4_CASCADE        ( "FALSE" ),
+   .DIVCLK_DIVIDE          ( 5 ),
+   .REF_JITTER1            ( 0.0 ),
+   .STARTUP_WAIT           ( "FALSE" )
+)
+u_clk_74p25m
 (
-   .clk_100m               ( clk_100m ),
-   .clk_150m               ( clk_150m ),
-   .reset                  ( 1'b0 ),
-   .locked                 ( base_mmcm_locked ),
-   .clk_50m                ( sys_clk_50m )
+   // Clock Outputs: 1-bit (each) output: User configurable clock outputs
+   .CLKOUT0                ( clk_74p25m ),
+   .CLKOUT0B               ( ),
+   .CLKOUT1                ( clk_371p25m ),
+   .CLKOUT1B               ( ),
+   // Feedback Clocks: 1-bit (each) output: Clock feedback ports
+   .CLKFBOUT               ( clk_74p25m_fb ),
+   .CLKFBOUTB              ( ),
+   // Status Ports: 1-bit (each) output: MMCM status ports
+   .LOCKED                 ( vid_mmcm_locked ),
+   // Clock Inputs: 1-bit (each) input: Clock input
+   .CLKIN1                 ( clk_100m ),
+   // Control Ports: 1-bit (each) input: MMCM control ports
+   .PWRDWN                 ( 1'b0 ),
+   .RST                    ( 1'b0 ),
+   // Feedback Clocks: 1-bit (each) input: Clock feedback ports
+   .CLKFBIN                ( clk_74p25m_fb )
 );
 
-clk_wiz_0 vid_mmcm
+BUFG u2_bufg
 (
-   .clk_148p5m             ( clk_148p5m ),
-   .clk_742p5m             ( clk_742p5m ),
-   .reset                  ( 1'b0 ),
-   .mmcm_locked            ( vid_mmcm_locked ),
-   .clk_100m               ( clk_100m )
+   .O                      ( clk_74p25m_bufg ),
+   .I                      ( clk_74p25m )
 );
 
+BUFG u3_bufg
+(
+   .O                      ( clk_371p25m_bufg ),
+   .I                      ( clk_371p25m )
+);
+
+//*****************************************************************************
+// System
+//*****************************************************************************
 system u_system
 (
    //DDR interface
@@ -177,7 +219,8 @@ system u_system
    .FIXED_IO_ps_clk        ( FIXED_IO_ps_clk ),
    .FIXED_IO_ps_porb       ( FIXED_IO_ps_porb ),
    .FIXED_IO_ps_srstb      ( FIXED_IO_ps_srstb ),
-
+   // Clock
+   .CLK_100M               ( clk_100m ),
    //Reg control
    .REG_CTRL_addr          ( reg_ctrl_addr ),
    .REG_CTRL_clk           ( reg_ctrl_clk ),
@@ -188,8 +231,8 @@ system u_system
    .REG_CTRL_we            ( reg_ctrl_we ),
 
    // VDMA
-   .axis_clk               ( clk_150m ),
-   .axis_rstn              ( base_mmcm_locked ),
+   .axis_clk               ( clk_100m ),
+   .axis_rstn              ( ~sys_rst ),
 
    .VDMA_MM2S_tdata        ( axis_i.tdata ),
    .VDMA_MM2S_tkeep        ( axis_i.tkeep ),
@@ -198,6 +241,22 @@ system u_system
    .VDMA_MM2S_tuser        ( axis_i.tuser ),
    .VDMA_MM2S_tvalid       ( axis_i.tvalid )
 );
+
+//*****************************************************************************
+// System reset
+//*****************************************************************************
+always @(posedge reg_ctrl_clk)
+begin
+   sys_rst_cnt <= sys_rst_cnt + ~&sys_rst_cnt;
+end
+
+always @(posedge reg_ctrl_clk)
+begin
+   if(&sys_rst_cnt)
+      sys_rst <= 1'b0;
+   else
+      sys_rst <= 1'b1;
+end
 
 //*****************************************************************************
 // Reg control
@@ -210,7 +269,7 @@ qwiregctrl
 )
 u_qwiregctrl
 (  
-   .sys_rst                ( 1'b0 ),
+   .sys_rst                ( sys_rst ),
    .reg_ce                 ( reg_ctrl_en ),
    .reg_rst                ( reg_ctrl_rst ),
    .reg_clk                ( reg_ctrl_clk ),
@@ -230,7 +289,7 @@ u_qwiregctrl
 //*****************************************************************************
 hdmi_vtg u_hdmi_vtg
 (
-   .clk                    ( clk_148p5m ),
+   .clk                    ( clk_74p25m_bufg ),
    .gen_ce                 ( vtg_i.vtg_ce ),
    .fmt_def                ( reg_fmt_def[2:0] ),
 
@@ -246,11 +305,15 @@ hdmi_vtg u_hdmi_vtg
 //*****************************************************************************
 // AXIS2NATV
 //*****************************************************************************
-axis2native u_axis2native
+axis2native
+#(
+   .VTG_MASTER             ( "true" )
+)
+u_axis2native
 (
    .rst                    ( !vid_mmcm_locked ),
-   .axis_clk               ( clk_150m ),
-   .natv_clk               ( clk_148p5m ),
+   .axis_clk               ( clk_100m ),
+   .natv_clk               ( clk_74p25m_bufg ),
 
    .axis_i                 ( axis_i ),
    .vtg_i                  ( vtg_i ),
@@ -261,10 +324,10 @@ axis2native u_axis2native
 // HDMI OUT
 //*****************************************************************************
 assign HDMI_OEN = 1'b1;
-rgb2dvi u_rgb2dvi
+rgb2dvi u_rbg2dvi
 (
-   .PixelClk               ( clk_148p5m ),
-   .SerialClk              ( clk_742p5m ),
+   .PixelClk               ( clk_74p25m_bufg ),
+   .SerialClk              ( clk_371p25m_bufg ),
    .aRst                   ( ),
    .aRst_n                 ( vid_mmcm_locked ),
    .vid_pData              ( natv_o.data ),
@@ -287,9 +350,9 @@ led_indicator
 )
 u_led_indicator							
 (
-	.clk                    ( clk_148p5m ),
+   .clk                    ( clk_148p5m ),
    .rst                    ( 1'b0 ),
-	.led                    ( led_indc )
+   .led                    ( led_indc )
 );
 
 endmodule
