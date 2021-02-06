@@ -7,8 +7,7 @@ create_clock -period 20.000 -waveform {0.000 10.000} [get_ports sys_clk_50m]
 
 set_clock_groups -asynchronous \
 -group [get_clocks -include_generated_clocks clk_fpga_0] \
--group [get_clocks -include_generated_clocks clk_150m_clk_wiz_1] \
--group [get_clocks -include_generated_clocks clk_148p5m_clk_wiz_0]
+-group [get_clocks -include_generated_clocks clk_74p25m]
 
 #HDMI interface
 set_property IOSTANDARD TMDS_33 [get_ports TMDS_clk_n]

@@ -151,14 +151,15 @@ CONFIG.MASTER_TYPE {BRAM_CTRL} \
  ] $REG_CTRL
   set VDMA_MM2S [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 VDMA_MM2S ]
   set_property -dict [ list \
-CONFIG.FREQ_HZ {150000000} \
+CONFIG.FREQ_HZ {100000000} \
  ] $VDMA_MM2S
 
   # Create ports
+  set CLK_100M [ create_bd_port -dir O -type clk CLK_100M ]
   set axis_clk [ create_bd_port -dir I -type clk axis_clk ]
   set_property -dict [ list \
 CONFIG.ASSOCIATED_RESET {axis_rstn} \
-CONFIG.FREQ_HZ {150000000} \
+CONFIG.FREQ_HZ {100000000} \
  ] $axis_clk
   set axis_rstn [ create_bd_port -dir I -type rst axis_rstn ]
   set_property -dict [ list \
@@ -238,7 +239,7 @@ CONFIG.NUM_MI {2} \
 
   # Create port connections
   connect_bd_net -net m_axi_mm2s_aclk_1 [get_bd_ports axis_clk] [get_bd_pins axi_mem_intercon/ACLK] [get_bd_pins axi_mem_intercon/M00_ACLK] [get_bd_pins axi_mem_intercon/S00_ACLK] [get_bd_pins axi_vdma_0/m_axi_mm2s_aclk] [get_bd_pins axi_vdma_0/m_axis_mm2s_aclk] [get_bd_pins processing_system7_0/S_AXI_HP0_ACLK] [get_bd_pins rst_axis_clk_150M/slowest_sync_clk]
-  connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_pins axi_reg_ctrl/s_axi_aclk] [get_bd_pins axi_vdma_0/s_axi_lite_aclk] [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_pins processing_system7_0/M_AXI_GP0_ACLK] [get_bd_pins processing_system7_0_axi_periph/ACLK] [get_bd_pins processing_system7_0_axi_periph/M00_ACLK] [get_bd_pins processing_system7_0_axi_periph/M01_ACLK] [get_bd_pins processing_system7_0_axi_periph/S00_ACLK] [get_bd_pins rst_processing_system7_0_50M/slowest_sync_clk]
+  connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_ports CLK_100M] [get_bd_pins axi_reg_ctrl/s_axi_aclk] [get_bd_pins axi_vdma_0/s_axi_lite_aclk] [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_pins processing_system7_0/M_AXI_GP0_ACLK] [get_bd_pins processing_system7_0_axi_periph/ACLK] [get_bd_pins processing_system7_0_axi_periph/M00_ACLK] [get_bd_pins processing_system7_0_axi_periph/M01_ACLK] [get_bd_pins processing_system7_0_axi_periph/S00_ACLK] [get_bd_pins rst_processing_system7_0_50M/slowest_sync_clk]
   connect_bd_net -net processing_system7_0_FCLK_RESET0_N [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_processing_system7_0_50M/ext_reset_in]
   connect_bd_net -net reset_rtl_1 [get_bd_ports axis_rstn] [get_bd_pins rst_axis_clk_150M/ext_reset_in]
   connect_bd_net -net rst_axis_clk_150M_interconnect_aresetn [get_bd_pins axi_mem_intercon/ARESETN] [get_bd_pins rst_axis_clk_150M/interconnect_aresetn]
@@ -257,6 +258,7 @@ CONFIG.NUM_MI {2} \
 #  -string -flagsOSRD
 preplace port DDR -pg 1 -y 300 -defaultsOSRD
 preplace port axis_clk -pg 1 -y 490 -defaultsOSRD
+preplace port CLK_100M -pg 1 -y 360 -defaultsOSRD
 preplace port VDMA_MM2S -pg 1 -y 550 -defaultsOSRD
 preplace port axis_rstn -pg 1 -y 560 -defaultsOSRD
 preplace port FIXED_IO -pg 1 -y 320 -defaultsOSRD
@@ -269,13 +271,13 @@ preplace inst rst_axis_clk_150M -pg 1 -lvl 1 -y 580 -defaultsOSRD
 preplace inst processing_system7_0_axi_periph -pg 1 -lvl 2 -y 270 -defaultsOSRD
 preplace inst processing_system7_0 -pg 1 -lvl 3 -y 340 -defaultsOSRD
 preplace netloc processing_system7_0_DDR 1 3 1 NJ
-preplace netloc rst_axis_clk_150M_interconnect_aresetn 1 1 1 390
 preplace netloc rst_axis_clk_150M_peripheral_aresetn 1 1 1 400
+preplace netloc rst_axis_clk_150M_interconnect_aresetn 1 1 1 390
 preplace netloc processing_system7_0_axi_periph_M00_AXI 1 2 1 680
 preplace netloc rst_processing_system7_0_50M_interconnect_aresetn 1 1 1 380
 preplace netloc axi_bram_ctrl_0_BRAM_PORTA 1 3 1 NJ
-preplace netloc axi_vdma_0_M_AXI_MM2S 1 1 3 400 450 NJ 450 1100
 preplace netloc processing_system7_0_M_AXI_GP0 1 1 3 380 130 NJ 130 1110
+preplace netloc axi_vdma_0_M_AXI_MM2S 1 1 3 400 450 NJ 450 1100
 preplace netloc axi_vdma_0_M_AXIS_MM2S 1 3 1 NJ
 preplace netloc processing_system7_0_FCLK_RESET0_N 1 0 4 30 490 NJ 440 NJ 440 1100
 preplace netloc axi_mem_intercon_M00_AXI 1 2 1 700
